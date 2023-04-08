@@ -1,0 +1,54 @@
+.container {
+    width: 100%;
+    height: 90vh;
+    position: relative;
+    background-color: white;
+    box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.6);
+}
+
+.container svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    background-color: #FFF;
+    cursor: default;
+    user-select: none;
+}
+
+.node {
+    font: 12px sans-serif;
+    stroke: #fff;
+    stroke-width: 2;
+}
+
+.node.inactive {
+    fill: orange;
+}
+
+.node.active {
+    fill: yellow;
+}
+
+.node.nearby {
+    fill: orangered;
+}
+
+.link {
+    stroke: #999;
+    stroke-opacity: 0.6;
+    fill: none;
+}
+
+.link.inactive {
+    stroke-width: 1;
+}
+
+.link.active {
+    stroke-width: 2;
+}
+
+.label {
+    font: 15px sans-serif;
+    text-anchor: middle;
+    pointer-events: none;
+}

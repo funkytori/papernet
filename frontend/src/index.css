@@ -1,0 +1,40 @@
+body {
+  font: 14px "Century Gothic", Futura, sans-serif;
+  margin: 20px;
+}
+
+.App {
+  text-align: center;
+}
+
+.App-header {
+  background-color: #282c34;
+  font-size: calc(10px + 2vmin);
+  color: white;
+  max-height: 5vh;
+}
+
+.split {
+  width: 50%;
+  height: 95vh;
+  position: fixed;
+  z-index: 1;
+}
+
+.Main {
+  left: 0;
+}
+
+.Directory {
+  right: 0;
+  overflow: scroll;
+}
+
+.DirHeader {
+  background-color: #282c34;
+  min-height: 10vh;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(10px + 2vmin);
+  color: white;
+}
