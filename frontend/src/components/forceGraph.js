@@ -5,7 +5,7 @@ import "./forceGraph.css";
 export function ForceGraph(props) {
     const containerRef = React.useRef(null);
     const nodeRef = React.useRef(null);
-    const [selected, setSelected] = React.useState(null);
+    const [selected, setSelected] = React.useState(props.selectedNode);
 
     const simulation = d3.forceSimulation()
         .force("charge", d3.forceManyBody().strength(-500))
@@ -35,7 +35,7 @@ export function ForceGraph(props) {
 
         svg.call(d3.zoom()
             .extent([[0, 0], [width, height]])
-            .scaleExtent([1, 8])
+            .scaleExtent([0.1, 10])
             .on("zoom", ({ transform }) => {
                 g.attr("transform", transform);
             }));

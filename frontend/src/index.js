@@ -69,12 +69,12 @@ class Secretary {
     }
 }
 
-function PaperEntry({ handleMouseOver, handleDL, paper }) {
+function PaperEntry({ handleClick, handleDL, paper, clickedId }) {
     return <ListGroup.Item
-        onMouseEnter={() => handleMouseOver(paper.aIDs)}
-        onMouseLeave={() => handleMouseOver([])}
+        onClick={() => handleClick(paper.aIDs, paper.id)}
         key={paper.id}>
         <div>
+            {clickedId === paper.id ? "🟥" : ""}
             {paper.name}
         </div>
         <Button onClick={() => handleDL(paper.id)}>
@@ -87,13 +87,13 @@ function PaperEntry({ handleMouseOver, handleDL, paper }) {
     </ListGroup.Item>;
 }
 
-function PaperBar({ data, handleRefreshPapers, handleDLPaper, handleMouseOver, handleRemoveAuthor }) {
+function PaperBar({ data, handleRefreshPapers, handleDLPaper, handleClick, handleRemoveAuthor, clickedId }) {
     if (data === null) {
         return <div></div>;
     }
 
     function renderPaperEntry(paper) {
-        return (<PaperEntry paper={paper} handleDL={handleDLPaper} handleMouseOver={handleMouseOver} />);
+        return (<PaperEntry paper={paper} handleDL={handleDLPaper} handleClick={handleClick} clickedId={clickedId} />);
     }
 
     return <div>
@@ -108,69 +108,58 @@ function PaperBar({ data, handleRefreshPapers, handleDLPaper, handleMouseOver, h
     </div >;
 }
 
-class AddAuthorForm extends React.Component {
-    constructor(props) {
-        super(props);
-        this.state = {
-            name: "",
-            cats: "",
-            show: false
-        };
-
-        this.handleChange = this.handleChange.bind(this);
-        this.handleSubmit = this.handleSubmit.bind(this);
+function AuthorList({ handleClick, nodes, selectedNode, highlightedNodes }) {
+    function renderAuthorEntry(author, handleClick, selectedNode, highlightedNodes) {
+        return <ListGroup.Item
+            key={author.id}
+            onClick={() => handleClick(author.id)}>
+            {(selectedNode === author.id ? "🟨" : "")}
+            {(highlightedNodes.includes(author.id) ? "🟥" : "")}
+            {author.name}
+        </ListGroup.Item>
     }
 
-    handleChange(e) {
-        const target = e.target;
-        const name = target.name;
-        this.setState({
-            [name]: target.value
-        });
-    }
+    return <ListGroup>
+        {nodes.map((x) => renderAuthorEntry(x, handleClick, selectedNode, highlightedNodes), this)}
+    </ListGroup>;
+}
 
-    handleSubmit(e) {
-        e.preventDefault();
-        this.props.call(this.state.name, this.state.cats);
-    }
+function AddAuthorForm({ call }) {
+    const [name, setName] = React.useState("");
+    const [cats, setCats] = React.useState("");
+    const [show, setShow] = React.useState(false);
 
-    render() {
-        const handleClose = () => this.setState({ show: false });
-        const handleShow = () => this.setState({ show: true });
-        return (
-            <>
-                <Button variant="primary" onClick={handleShow}>
-                    Add Author
-                </Button>
+    return <>
+        <Button variant="primary" onClick={() => setShow(true)}>
+            Add Author
+        </Button>
 
-                <Modal show={this.state.show} onHide={handleClose}>
-                    <Modal.Header closeButton>
-                        <Modal.Title>Add an author</Modal.Title>
-                    </Modal.Header>
-                    <form onSubmit={(e) => { this.handleSubmit(e); handleClose(); }}>
-                        <Modal.Body>
-                            <h> Author: </h>
-                            <input
-                                name='name'
-                                onChange={this.handleChange}
-                                value={this.state.name} />
-                            <br />
-                            <h> Categories: </h>
-                            <input
-                                name='cats'
-                                onChange={this.handleChange}
-                                value={this.state.cats} />
-                        </Modal.Body>
-                        <Modal.Footer>
-                            <Button variant="primary" type="submit">
-                                Add
-                            </Button>
-                        </Modal.Footer>
-                    </form>
-                </Modal>
-            </>
-        );
-    }
+        <Modal show={show} onHide={() => setShow(false)}>
+            <Modal.Header closeButton>
+                <Modal.Title>Add an author</Modal.Title>
+            </Modal.Header>
+            <form onSubmit={(e) => { e.preventDefault(); call(name, cats); setShow(false); }}>
+                <Modal.Body>
+                    <h> Author: </h>
+                    <input
+                        name='name'
+                        onChange={(e) => setName(e.target.value)}
+                        value={name} />
+                    <br />
+                    <h> Categories: </h>
+                    <input
+                        name='cats'
+                        onChange={(e) => setCats(e.target.value)}
+                        value={cats} />
+                </Modal.Body>
+                <Modal.Footer>
+                    <Button variant="primary" type="submit">
+                        Add
+                    </Button>
+                </Modal.Footer>
+            </form>
+        </Modal>
+    </>;
 }
 
 class Main extends React.Component {
@@ -182,9 +171,11 @@ class Main extends React.Component {
             selectedNode: null,
             selectedData: null,
             highlightedNodes: [],
+            highlightedPaper: null,
+            showGraph: true,
         };
         this.handleNodeClick = this.handleNodeClick.bind(this);
-        this.handleMouseOver = this.handleMouseOver.bind(this);
+        this.handlePaperClick = this.handlePaperClick.bind(this);
         this.handleAddAuthor = this.handleAddAuthor.bind(this);
         this.handleRefreshPapers = this.handleRefreshPapers.bind(this);
         this.handleRemoveAuthor = this.handleRemoveAuthor.bind(this);
@@ -192,11 +183,7 @@ class Main extends React.Component {
     }
 
     componentDidMount() {
-        Secretary.fetchAll()
-            .then((res) => this.setState({
-                nodes: res.nodes,
-                links: res.links,
-            }));
+        this.refreshGraph();
     }
 
     render() {
@@ -207,24 +194,52 @@ class Main extends React.Component {
                 </header>
                 <div>
                     <section className="split Main">
-                        <ForceGraph
-                            handleClick={this.handleNodeClick}
-                            nodes={this.state.nodes}
-                            links={this.state.links}
-                            highlightedNodes={this.state.highlightedNodes} />
+                        {this.state.showGraph ? (
+                            <ForceGraph
+                                handleClick={this.handleNodeClick}
+                                nodes={this.state.nodes}
+                                links={this.state.links}
+                                selectedNode={this.state.selectedNode}
+                                highlightedNodes={this.state.highlightedNodes} />
+                        ) : (
+                            <AuthorList handleClick={this.handleNodeClick}
+                                nodes={this.state.nodes}
+                                selectedNode={this.state.selectedNode}
+                                highlightedNodes={this.state.highlightedNodes} />
+                        )}
+                        <Button variant="primary" onClick={() =>
+                            this.setState(prevState => ({
+                                showGraph: !prevState.showGraph
+                            }))
+                        } >
+                            Toggle Graph View
+                        </Button>
                         <AddAuthorForm call={this.handleAddAuthor} />
+                        <Button variant="primary" onClick={() => {
+                            this.state.nodes.reduce((acc, current, idx) => {
+                                return acc.then(async () => {
+                                    await new Promise(resolve => setTimeout(resolve, 3000));
+                                    console.log("Fetching %s, %d", current.name, idx);
+                                    return this.handleRefreshPapers(current.id);
+                                })
+                            }, Promise.resolve())
+                                .then(() => { console.log("Done refreshing all.") });
+                        }}>
+                            Refresh all
+                        </Button>
                     </section>
-                    <section className="split Directory">
+                    <section className="split">
                         <PaperBar
                             data={this.state.selectedData}
                             handleRefreshPapers={this.handleRefreshPapers}
                             handleDLPaper={this.handleDLPaper}
-                            handleMouseOver={this.handleMouseOver}
+                            handleClick={this.handlePaperClick}
+                            clickedId={this.state.highlightedPaper}
                             handleRemoveAuthor={this.handleRemoveAuthor}
                         />
                     </section>
                 </div>
-            </div>
+            </div >
         );
     }
 
@@ -234,7 +249,7 @@ class Main extends React.Component {
                 selectedData: null
             });
         } else {
-            Secretary.getPapers(id)
+            return Secretary.getPapers(id)
                 .then((res) =>
                     this.setState({
                         selectedData: res
@@ -243,34 +258,41 @@ class Main extends React.Component {
     }
 
     handleAddAuthor(name, cats) {
-        Secretary.addAuthor(name, cats)
-            .then((_) => Secretary.fetchAll())
-            .then((res) => this.setState({
-                nodes: res.nodes,
-                links: res.links,
-            }));
+        return Secretary.addAuthor(name, cats).then(() => this.refreshGraph());
     }
 
     handleNodeClick(id) {
         this.setState({
-            selectedNode: id
+            selectedNode: id,
         });
+        if (!this.state.highlightedNodes.includes(id)) {
+            this.setState({
+                highlightedNodes: []
+            });
+        }
         this.fetchData(id);
     }
 
-    handleMouseOver(aIDs) {
+    handlePaperClick(aIDs, paperId) {
         this.setState({
-            highlightedNodes: aIDs
+            highlightedNodes: aIDs,
+            highlightedPaper: paperId
         });
     }
 
     handleRefreshPapers(id) {
-        Secretary.refreshPapers(id)
-            .then((_) => Secretary.getPapers(id)
+        return Secretary.refreshPapers(id).then(() => this.refreshGraph());
+    }
+
+    refreshGraph() {
+        var promise = Promise.resolve();
+        if (this.state.selectedNode != null) {
+            promise = promise.then((_) => Secretary.getPapers(this.state.selectedNode)
                 .then((res) => this.setState({
                     selectedData: res
-                })))
-            .then((_) => Secretary.fetchAll())
+                })));
+        }
+        return promise.then((_) => Secretary.fetchAll())
             .then((res) => this.setState({
                 nodes: res.nodes,
                 links: res.links,
@@ -282,12 +304,7 @@ class Main extends React.Component {
             selectedNode: null,
             selectedData: null
         });
-        Secretary.delAuthor(id)
-            .then((_) => Secretary.fetchAll())
-            .then((res) => this.setState({
-                nodes: res.nodes,
-                links: res.links,
-            }));
+        Secretary.delAuthor(id).then(() => this.refreshGraph());
     }
 
     handleDLPaper(id) {

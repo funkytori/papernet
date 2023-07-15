@@ -138,7 +138,7 @@ app.post("/api/fetch", async (req, res) => {
                 res.sendStatus(500);
             });
         start = start + 10;
-        await delay(250);
+        await delay(3000);
     }
 
     updateJson();
@@ -195,7 +195,6 @@ app.post("/api/download", async (req, resp) => {
         }
     };
 
-    await delay(250);
     http.get(entry.URL, options, (res) => {
         const writeStream = fs.createWriteStream(dir);
         res.pipe(writeStream);

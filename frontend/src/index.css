@@ -19,15 +19,12 @@ body {
   height: 95vh;
   position: fixed;
   z-index: 1;
+  right: 0;
+  overflow: scroll;
 }
 
 .Main {
   left: 0;
-}
-
-.Directory {
-  right: 0;
-  overflow: scroll;
 }
 
 .DirHeader {
