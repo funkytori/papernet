@@ -131,26 +131,36 @@ function AddAuthorForm({ call }) {
 
     return <>
         <Button variant="primary" onClick={() => setShow(true)}>
-            Add Author
+            Add author
         </Button>
 
         <Modal show={show} onHide={() => setShow(false)}>
             <Modal.Header closeButton>
                 <Modal.Title>Add an author</Modal.Title>
             </Modal.Header>
-            <form onSubmit={(e) => { e.preventDefault(); call(name, cats); setShow(false); }}>
+            <form onSubmit={(e) => {
+                e.preventDefault();
+                call(name, cats);
+                setName("");
+                setCats("");
+                setShow(false);
+            }}>
                 <Modal.Body>
                     <h> Author: </h>
                     <input
                         name='name'
                         onChange={(e) => setName(e.target.value)}
-                        value={name} />
+                        value={name}
+                        placeholder="Terence Tao"
+                    />
                     <br />
-                    <h> Categories: </h>
+                    <h> Subjects: </h>
                     <input
                         name='cats'
                         onChange={(e) => setCats(e.target.value)}
-                        value={cats} />
+                        value={cats}
+                        placeholder="math.NT, math.CO"
+                    />
                 </Modal.Body>
                 <Modal.Footer>
                     <Button variant="primary" type="submit">
@@ -212,7 +222,7 @@ class Main extends React.Component {
                                 showGraph: !prevState.showGraph
                             }))
                         } >
-                            Toggle Graph View
+                            Toggle graph view
                         </Button>
                         <AddAuthorForm call={this.handleAddAuthor} />
                         <Button variant="primary" onClick={() => {
