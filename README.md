@@ -3,6 +3,8 @@
 A simple web app to visualize authors, papers and collaborations.
 It scrapes all data from arxiv.
 
+![Screenshot](https://github.com/funkytori/papernet/assets/2690998/84d2271f-1d22-41a9-88f8-bcced6bb5ebb)
+
 ## Available Scripts
 
 In the project directory, you can run:
