@@ -5,14 +5,18 @@ import "./forceGraph.css";
 export function ForceGraph(props) {
     const containerRef = React.useRef(null);
     const nodeRef = React.useRef(null);
+    const simulationRef = React.useRef(null);
     const [selected, setSelected] = React.useState(props.selectedNode);
 
-    const simulation = d3.forceSimulation()
-        .force("charge", d3.forceManyBody().strength(-500))
-        .force("link", d3.forceLink().id(d => d.id).distance(150))
-        .force("x", d3.forceX())
-        .force("y", d3.forceY())
-        .alphaMin(0.01);
+    if (!simulationRef.current) {
+        simulationRef.current = d3.forceSimulation()
+            .force("charge", d3.forceManyBody().strength(-500))
+            .force("link", d3.forceLink().id(d => d.id).distance(150))
+            .force("x", d3.forceX())
+            .force("y", d3.forceY())
+            .alphaMin(0.01);
+    }
+    const simulation = simulationRef.current;
 
     const nodeProp = props.nodes;
     const clickProp = props.handleClick;
@@ -22,8 +26,8 @@ export function ForceGraph(props) {
     React.useEffect(() => {
         const container = containerRef.current;
         const containerRect = container.getBoundingClientRect();
-        const height = containerRect.height;
-        const width = containerRect.width;
+        let height = containerRect.height;
+        let width = containerRect.width;
 
         const svg = d3.select(container)
             .append("svg")
@@ -33,12 +37,14 @@ export function ForceGraph(props) {
 
         const g = svg.append("g");
 
-        svg.call(d3.zoom()
+        const zoom = d3.zoom()
             .extent([[0, 0], [width, height]])
             .scaleExtent([0.1, 10])
             .on("zoom", ({ transform }) => {
                 g.attr("transform", transform);
-            }));
+            });
+
+        svg.call(zoom);
 
         const link = g.append("g")
             .attr("id", "links");
@@ -68,7 +74,20 @@ export function ForceGraph(props) {
                 .attr("y", d => { return d.y; })
         });
 
+        const resizeObserver = new ResizeObserver((entries) => {
+            const entry = entries[0];
+            if (!entry) return;
+            width = entry.contentRect.width;
+            height = entry.contentRect.height;
+            svg.attr("width", width)
+                .attr("height", height)
+                .attr("viewBox", [-width / 2, -height / 2, width, height]);
+            zoom.extent([[0, 0], [width, height]]);
+        });
+        resizeObserver.observe(container);
+
         return (() => {
+            resizeObserver.disconnect();
             simulation.stop();
             svg.remove();
         });

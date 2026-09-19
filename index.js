@@ -1,5 +1,4 @@
 const express = require('express');
-const bodyParser = require('body-parser');
 const path = require('path');
 const fs = require('fs');
 const http = require('follow-redirects').http;
@@ -16,17 +15,24 @@ app.use(cors({
 }));
 
 app.use(express.static(path.join(__dirname, "frontend", "build")));
+app.use('/papers', express.static(path.join(__dirname, "papers")));
+app.use(express.json());
 
-app.use(bodyParser.json());
+function normalizeName(name) {
+    return name.trim().replace(/\s+/g, ' ').toLowerCase();
+}
 
 function updateJson() {
-    const data = JSON.stringify(jsonData);
-    fs.writeFileSync('./data.json', data, (err) => {
-        if (err) {
-            throw err;
-        }
-    });
-};
+    try {
+        fs.writeFileSync('./data.json', JSON.stringify(jsonData));
+    } catch (err) {
+        console.error('Failed to persist data.json:', err);
+    }
+}
+
+function delay(time) {
+    return new Promise(resolve => setTimeout(resolve, time));
+}
 
 app.get("/api/get", async (_, res) => {
     const cleanedData = {
@@ -37,7 +43,10 @@ app.get("/api/get", async (_, res) => {
 });
 
 app.post("/api/get/papers", async (req, res) => {
-    var entry = jsonData.authors.find(x => x.id == req.body.id);
+    const entry = jsonData.authors.find(x => x.id == req.body.id);
+    if (!entry) {
+        return res.sendStatus(404);
+    }
 
     const cleanedData = {
         author: {
@@ -90,17 +99,20 @@ function tryAddPaper(aId, id, name, link) {
 };
 
 app.post("/api/add", async (req, res) => {
-    var entry = jsonData.authors.find(x => x.name == req.body.name);
+    const name = (req.body.name || '').trim();
+    if (!name) {
+        return res.sendStatus(400);
+    }
 
-    if (entry == undefined) {
+    const entry = jsonData.authors.find(x => normalizeName(x.name) === normalizeName(name));
+    if (entry === undefined) {
         var lastId = 0;
         jsonData.authors.forEach((x) => { lastId = Math.max(lastId, x.id); });
-        entry = {
+        jsonData.authors.push({
             id: lastId + 1,
-            name: req.body.name,
+            name: name,
             cats: req.body.cats
-        };
-        jsonData.authors.push(entry);
+        });
         updateJson();
     }
 
@@ -108,17 +120,42 @@ app.post("/api/add", async (req, res) => {
 });
 
 app.post("/api/fetch", async (req, res) => {
-    var entry = jsonData.authors.find(x => x.id == req.body.id);
+    const entry = jsonData.authors.find(x => x.id == req.body.id);
+    if (!entry) {
+        return res.sendStatus(404);
+    }
 
-    // Fetch paper list from Arxiv
-    var toAdd = true;
-    var start = 0;
-    while (toAdd) {
+    // Arxiv's search syntax expects each category prefixed with "cat:" and
+    // joined with OR, e.g. (cat:math.NT OR cat:math.CO). A raw
+    // comma-separated string ("math.NT, math.CO") does not filter correctly.
+    const catQuery = (entry.cats || '')
+        .split(',')
+        .map(c => c.trim())
+        .filter(Boolean)
+        .map(c => `cat:${c}`)
+        .join('+OR+');
+
+    let toAdd = true;
+    let start = 0;
+    let hadError = false;
+
+    // Fetch paper list from Arxiv, one page at a time. Arxiv asks API
+    // consumers not to send more than one request every few seconds, hence
+    // the delay between pages.
+    while (toAdd && !hadError) {
         toAdd = false;
-        await axios(`http://export.arxiv.org/api/query?search_query=au:\"${entry.name}\"+AND+(${entry.cats})&sortBy=lastUpdatedDate&sortOrder=descending&start=${start}&max_results=10`)
-            .then(res => {
-                parseString(res.data, (_, result) => {
-                    var qAuthor = result;
+        try {
+            const response = await axios(
+                `http://export.arxiv.org/api/query?search_query=au:"${entry.name}"+AND+(${catQuery})&sortBy=lastUpdatedDate&sortOrder=descending&start=${start}&max_results=10`
+            );
+
+            await new Promise((resolve, reject) => {
+                parseString(response.data, (err, result) => {
+                    if (err) {
+                        reject(err);
+                        return;
+                    }
+                    const qAuthor = result;
                     if ('entry' in qAuthor.feed) {
                         qAuthor.feed.entry.forEach((x) => {
                             toAdd = true;
@@ -131,28 +168,41 @@ app.post("/api/fetch", async (req, res) => {
                             tryAddPaper(entry.id, id, title, link);
                         });
                     }
+                    resolve();
                 });
-            })
-            .catch(error => {
-                console.error(error);
-                res.sendStatus(500);
             });
+        } catch (error) {
+            console.error('Failed to fetch papers for author %s:', entry.name, error);
+            hadError = true;
+            break;
+        }
+
         start = start + 10;
-        await delay(3000);
+        if (toAdd) {
+            await delay(3000);
+        }
     }
 
     updateJson();
 
+    if (hadError) {
+        return res.sendStatus(500);
+    }
     res.sendStatus(200);
 });
 
 app.post("/api/del", async (req, res) => {
+    const authorExists = jsonData.authors.some(x => x.id == req.body.id);
+    if (!authorExists) {
+        return res.sendStatus(404);
+    }
+
     jsonData.authors = jsonData.authors.filter((x) => x.id != req.body.id);
     jsonData.papers = jsonData.papers
         .map((x) => ({
             id: x.id,
             name: x.name,
-            URL: x.link,
+            URL: x.URL,
             offline: x.offline,
             path: x.path,
             aIDs: x.aIDs.filter((y) => y != req.body.id)
@@ -164,29 +214,16 @@ app.post("/api/del", async (req, res) => {
     res.sendStatus(200);
 });
 
-app.get("/papers/*", async (req, res) => {
-    res.sendFile(path.join(__dirname, req.originalUrl));
-});
-
-app.get("*", async (_, res) => {
-    res.sendFile(path.join(__dirname, "frontend", "build", "index.html"));
-});
-
-function delay(time) {
-    return new Promise(resolve => setTimeout(resolve, time));
-}
-
 app.post("/api/download", async (req, resp) => {
     var entry = jsonData.papers.find(x => x.id == req.body.id);
 
     if (entry === undefined) {
-        resp.sendStatus(500);
+        resp.sendStatus(404);
         return;
     }
 
     var dir = './papers/' + entry.id + '.pdf'
 
-    // TODO chage to something sensible
     const uAgent = 'Python-urllib/3.6'
 
     const options = {
@@ -207,8 +244,14 @@ app.post("/api/download", async (req, resp) => {
             updateJson()
             resp.sendStatus(200);
         });
+    }).on('error', (err) => {
+        console.error('Failed to download paper %s:', entry.id, err);
+        resp.sendStatus(502);
     });
 });
 
-app.listen(PORT,
-    (server) => console.log('server is running on http://localhost:%s', PORT));
+app.get("*", async (_, res) => {
+    res.sendFile(path.join(__dirname, "frontend", "build", "index.html"));
+});
+
+app.listen(PORT, () => console.log('server is running on http://localhost:%s', PORT));

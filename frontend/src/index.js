@@ -6,6 +6,7 @@ import 'bootstrap/dist/css/bootstrap.min.css';
 import ListGroup from 'react-bootstrap/ListGroup';
 import Button from 'react-bootstrap/Button';
 import Modal from 'react-bootstrap/Modal';
+import Alert from 'react-bootstrap/Alert';
 
 import { ForceGraph } from './components/forceGraph';
 
@@ -16,11 +17,19 @@ class Secretary {
         'Content-Type': 'application/json',
     };
 
+    static handleResponse(res) {
+        if (!res.ok) {
+            throw new Error(`Request failed with status ${res.status}`);
+        }
+        return res;
+    }
+
     static fetchAll() {
         return fetch('/api/get', {
             method: 'GET',
             headers: this.headers,
         })
+            .then(this.handleResponse)
             .then((res) => res.json());
     }
 
@@ -30,6 +39,7 @@ class Secretary {
             headers: this.headers,
             body: JSON.stringify({ id: id })
         })
+            .then(this.handleResponse)
             .then((res) => res.json());
     }
 
@@ -41,7 +51,7 @@ class Secretary {
                 name: name,
                 cats: cats,
             })
-        });
+        }).then(this.handleResponse);
     }
 
     static refreshPapers(id) {
@@ -49,7 +59,7 @@ class Secretary {
             method: 'POST',
             headers: this.headers,
             body: JSON.stringify({ id: id })
-        });
+        }).then(this.handleResponse);
     }
 
     static dlPaper(id) {
@@ -57,7 +67,7 @@ class Secretary {
             method: 'POST',
             headers: this.headers,
             body: JSON.stringify({ id: id })
-        });
+        }).then(this.handleResponse);
     }
 
     static delAuthor(id) {
@@ -65,16 +75,16 @@ class Secretary {
             method: 'POST',
             headers: this.headers,
             body: JSON.stringify({ id: id })
-        });
+        }).then(this.handleResponse);
     }
 }
 
 function PaperEntry({ handleClick, handleDL, paper, clickedId }) {
     return <ListGroup.Item
-        onClick={() => handleClick(paper.aIDs, paper.id)}
-        key={paper.id}>
+        onClick={() => handleClick(paper.aIDs, paper.id)}>
         <div>
-            {clickedId === paper.id ? "🟥" : ""}
+            {clickedId === paper.id &&
+                <span aria-label="Currently selected paper" title="Selected">🟥 </span>}
             {paper.name}
         </div>
         <Button onClick={() => handleDL(paper.id)}>
@@ -93,7 +103,7 @@ function PaperBar({ data, handleRefreshPapers, handleDLPaper, handleClick, handl
     }
 
     function renderPaperEntry(paper) {
-        return (<PaperEntry paper={paper} handleDL={handleDLPaper} handleClick={handleClick} clickedId={clickedId} />);
+        return (<PaperEntry key={paper.id} paper={paper} handleDL={handleDLPaper} handleClick={handleClick} clickedId={clickedId} />);
     }
 
     return <div>
@@ -113,8 +123,10 @@ function AuthorList({ handleClick, nodes, selectedNode, highlightedNodes }) {
         return <ListGroup.Item
             key={author.id}
             onClick={() => handleClick(author.id)}>
-            {(selectedNode === author.id ? "🟨" : "")}
-            {(highlightedNodes.includes(author.id) ? "🟥" : "")}
+            {selectedNode === author.id &&
+                <span aria-label="Currently selected author" title="Selected">🟨 </span>}
+            {highlightedNodes.includes(author.id) &&
+                <span aria-label="Collaborator of selected author" title="Collaborator">🟥 </span>}
             {author.name}
         </ListGroup.Item>
     }
@@ -146,16 +158,18 @@ function AddAuthorForm({ call }) {
                 setShow(false);
             }}>
                 <Modal.Body>
-                    <h> Author: </h>
+                    <label htmlFor="add-author-name">Author:</label>
                     <input
+                        id="add-author-name"
                         name='name'
                         onChange={(e) => setName(e.target.value)}
                         value={name}
                         placeholder="Terence Tao"
                     />
                     <br />
-                    <h> Subjects: </h>
+                    <label htmlFor="add-author-cats">Subjects:</label>
                     <input
+                        id="add-author-cats"
                         name='cats'
                         onChange={(e) => setCats(e.target.value)}
                         value={cats}
@@ -183,11 +197,15 @@ class Main extends React.Component {
             highlightedNodes: [],
             highlightedPaper: null,
             showGraph: true,
+            errorMessage: null,
+            refreshingAll: false,
+            refreshAllProgress: null,
         };
         this.handleNodeClick = this.handleNodeClick.bind(this);
         this.handlePaperClick = this.handlePaperClick.bind(this);
         this.handleAddAuthor = this.handleAddAuthor.bind(this);
         this.handleRefreshPapers = this.handleRefreshPapers.bind(this);
+        this.handleRefreshAll = this.handleRefreshAll.bind(this);
         this.handleRemoveAuthor = this.handleRemoveAuthor.bind(this);
         this.handleDLPaper = this.handleDLPaper.bind(this);
     }
@@ -197,11 +215,16 @@ class Main extends React.Component {
     }
 
     render() {
+        const { refreshingAll, refreshAllProgress } = this.state;
         return (
             <div className="App">
                 <header className="App-header">
                     PaperNet
                 </header>
+                {this.state.errorMessage &&
+                    <Alert variant="danger" dismissible onClose={() => this.setState({ errorMessage: null })}>
+                        {this.state.errorMessage}
+                    </Alert>}
                 <div>
                     <section className="split Main">
                         {this.state.showGraph ? (
@@ -225,17 +248,10 @@ class Main extends React.Component {
                             Toggle graph view
                         </Button>
                         <AddAuthorForm call={this.handleAddAuthor} />
-                        <Button variant="primary" onClick={() => {
-                            this.state.nodes.reduce((acc, current, idx) => {
-                                return acc.then(async () => {
-                                    await new Promise(resolve => setTimeout(resolve, 3000));
-                                    console.log("Fetching %s, %d", current.name, idx);
-                                    return this.handleRefreshPapers(current.id);
-                                })
-                            }, Promise.resolve())
-                                .then(() => { console.log("Done refreshing all.") });
-                        }}>
-                            Refresh all
+                        <Button variant="primary" disabled={refreshingAll} onClick={this.handleRefreshAll}>
+                            {refreshingAll
+                                ? `Refreshing all... (${refreshAllProgress.current}/${refreshAllProgress.total})`
+                                : "Refresh all"}
                         </Button>
                     </section>
                     <section className="split">
@@ -258,17 +274,26 @@ class Main extends React.Component {
             this.setState({
                 selectedData: null
             });
-        } else {
-            return Secretary.getPapers(id)
-                .then((res) =>
-                    this.setState({
-                        selectedData: res
-                    }));
+            return Promise.resolve();
         }
+        return Secretary.getPapers(id)
+            .then((res) =>
+                this.setState({
+                    selectedData: res
+                }))
+            .catch((err) => {
+                console.error('Failed to load papers:', err);
+                this.setState({ errorMessage: "Couldn't load papers for this author." });
+            });
     }
 
     handleAddAuthor(name, cats) {
-        return Secretary.addAuthor(name, cats).then(() => this.refreshGraph());
+        return Secretary.addAuthor(name, cats)
+            .then(() => this.refreshGraph())
+            .catch((err) => {
+                console.error('Failed to add author:', err);
+                this.setState({ errorMessage: "Couldn't add that author. Please try again." });
+            });
     }
 
     handleNodeClick(id) {
@@ -291,7 +316,35 @@ class Main extends React.Component {
     }
 
     handleRefreshPapers(id) {
-        return Secretary.refreshPapers(id).then(() => this.refreshGraph());
+        return Secretary.refreshPapers(id)
+            .then(() => this.refreshGraph())
+            .catch((err) => {
+                console.error('Failed to refresh papers for author %s:', id, err);
+                this.setState({ errorMessage: "Couldn't refresh papers for one of the authors." });
+            });
+    }
+
+    handleRefreshAll() {
+        if (this.state.refreshingAll) {
+            return;
+        }
+
+        const nodes = this.state.nodes;
+        this.setState({
+            refreshingAll: true,
+            refreshAllProgress: { current: 0, total: nodes.length },
+        });
+
+        nodes.reduce((acc, current, idx) => {
+            return acc.then(async () => {
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                console.log("Fetching %s, %d", current.name, idx);
+                await this.handleRefreshPapers(current.id);
+                this.setState({ refreshAllProgress: { current: idx + 1, total: nodes.length } });
+            });
+        }, Promise.resolve())
+            .then(() => console.log("Done refreshing all."))
+            .finally(() => this.setState({ refreshingAll: false, refreshAllProgress: null }));
     }
 
     refreshGraph() {
@@ -302,11 +355,16 @@ class Main extends React.Component {
                     selectedData: res
                 })));
         }
-        return promise.then((_) => Secretary.fetchAll())
+        return promise
+            .then((_) => Secretary.fetchAll())
             .then((res) => this.setState({
                 nodes: res.nodes,
                 links: res.links,
-            }));
+            }))
+            .catch((err) => {
+                console.error('Failed to refresh graph data:', err);
+                this.setState({ errorMessage: "Couldn't refresh data from the server." });
+            });
     }
 
     handleRemoveAuthor(id) {
@@ -314,12 +372,21 @@ class Main extends React.Component {
             selectedNode: null,
             selectedData: null
         });
-        Secretary.delAuthor(id).then(() => this.refreshGraph());
+        return Secretary.delAuthor(id)
+            .then(() => this.refreshGraph())
+            .catch((err) => {
+                console.error('Failed to remove author:', err);
+                this.setState({ errorMessage: "Couldn't remove that author." });
+            });
     }
 
     handleDLPaper(id) {
-        Secretary.dlPaper(id)
-            .then((_) => this.fetchData(this.state.selectedNode));
+        return Secretary.dlPaper(id)
+            .then((_) => this.fetchData(this.state.selectedNode))
+            .catch((err) => {
+                console.error('Failed to download paper:', err);
+                this.setState({ errorMessage: "Couldn't download that paper." });
+            });
     }
 }
 
