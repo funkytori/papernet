@@ -1,4 +1,4 @@
 papers/*.pdf
 package-lock.json
 node_modules/
-data.json
+papernet.db*
