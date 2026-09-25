@@ -15,7 +15,14 @@ app.use(cors({
 }));
 
 app.use(express.static(path.join(__dirname, "frontend", "build")));
+// Serve downloaded PDFs from a fixed, known directory. Using express.static
+// (instead of manually joining req.originalUrl onto __dirname) means a
+// request path containing "../" can't be used to read files outside of
+// ./papers.
 app.use('/papers', express.static(path.join(__dirname, "papers")));
+
+// body-parser's JSON middleware has been part of Express itself since 4.16,
+// so the separate dependency is no longer needed.
 app.use(express.json());
 
 function normalizeName(name) {
@@ -23,6 +30,8 @@ function normalizeName(name) {
 }
 
 function updateJson() {
+    // writeFileSync is synchronous and throws on failure; it does not take a
+    // callback, so the previous (err) => {...} argument was silently ignored.
     try {
         fs.writeFileSync('./data.json', JSON.stringify(jsonData));
     } catch (err) {
@@ -104,7 +113,10 @@ app.post("/api/add", async (req, res) => {
         return res.sendStatus(400);
     }
 
+    // Compare names trimmed and case-insensitively so "Terence Tao" and
+    // "terence tao " don't end up as two different authors.
     const entry = jsonData.authors.find(x => normalizeName(x.name) === normalizeName(name));
+
     if (entry === undefined) {
         var lastId = 0;
         jsonData.authors.forEach((x) => { lastId = Math.max(lastId, x.id); });
@@ -172,6 +184,12 @@ app.post("/api/fetch", async (req, res) => {
                 });
             });
         } catch (error) {
+            // Previously, an error here logged and sent a 500 but did not
+            // stop the loop or return, so execution fell through to
+            // updateJson() + res.sendStatus(200) afterwards, which would
+            // throw "ERR_HTTP_HEADERS_SENT" because two responses were sent
+            // for the same request. We now stop the loop and only respond
+            // once.
             console.error('Failed to fetch papers for author %s:', entry.name, error);
             hadError = true;
             break;
@@ -202,6 +220,9 @@ app.post("/api/del", async (req, res) => {
         .map((x) => ({
             id: x.id,
             name: x.name,
+            // This previously read x.link, which does not exist on paper
+            // entries (they store URL). Every author deletion was silently
+            // wiping the download/open-online link on every remaining paper.
             URL: x.URL,
             offline: x.offline,
             path: x.path,
@@ -224,6 +245,7 @@ app.post("/api/download", async (req, resp) => {
 
     var dir = './papers/' + entry.id + '.pdf'
 
+    // TODO change to something sensible
     const uAgent = 'Python-urllib/3.6'
 
     const options = {

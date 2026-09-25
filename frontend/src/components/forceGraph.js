@@ -8,6 +8,12 @@ export function ForceGraph(props) {
     const simulationRef = React.useRef(null);
     const [selected, setSelected] = React.useState(props.selectedNode);
 
+    // Simulation lives in a ref so all effects below always talk to the same
+    // instance. Previously it was a plain const in the function body: a new
+    // simulation was created on every render, but only the first one ever got
+    // a tick handler (the mount-only effect below). Every later render's
+    // effects were calling .nodes()/.links() on a throwaway simulation that
+    // had no tick handler and never touched the DOM.
     if (!simulationRef.current) {
         simulationRef.current = d3.forceSimulation()
             .force("charge", d3.forceManyBody().strength(-500))
@@ -23,6 +29,7 @@ export function ForceGraph(props) {
     const linkProp = props.links;
     const highlightProp = props.highlightedNodes;
 
+    // ── Mount / unmount ───────────────────────────────────────────────────
     React.useEffect(() => {
         const container = containerRef.current;
         const containerRect = container.getBoundingClientRect();
@@ -46,39 +53,32 @@ export function ForceGraph(props) {
 
         svg.call(zoom);
 
-        const link = g.append("g")
-            .attr("id", "links");
-
-        const node = g.append("g")
-            .attr("id", "nodes");
-
-        const label = g.append("g")
-            .attr("id", "labels");
+        g.append("g").attr("id", "links");
+        g.append("g").attr("id", "nodes");
+        g.append("g").attr("id", "labels");
 
         simulation.on("tick", () => {
-            //update link positions
-            link.selectAll("line")
+            g.select("#links").selectAll("line")
                 .attr("x1", d => d.source.x)
                 .attr("y1", d => d.source.y)
                 .attr("x2", d => d.target.x)
                 .attr("y2", d => d.target.y);
 
-            // update node positions
-            node.selectAll("circle")
+            g.select("#nodes").selectAll("circle")
                 .attr("cx", d => d.x)
                 .attr("cy", d => d.y);
 
-            // update label positions
-            label.selectAll("text")
-                .attr("x", d => { return d.x; })
-                .attr("y", d => { return d.y; })
+            g.select("#labels").selectAll("text")
+                .attr("x", d => d.x)
+                .attr("y", d => d.y);
         });
 
-        const resizeObserver = new ResizeObserver((entries) => {
-            const entry = entries[0];
-            if (!entry) return;
-            width = entry.contentRect.width;
-            height = entry.contentRect.height;
+        // Keep the SVG filling the container when the window is resized.
+        const resizeObserver = new ResizeObserver(entries => {
+            const rect = entries[0]?.contentRect;
+            if (!rect) return;
+            width = rect.width;
+            height = rect.height;
             svg.attr("width", width)
                 .attr("height", height)
                 .attr("viewBox", [-width / 2, -height / 2, width, height]);
@@ -86,30 +86,23 @@ export function ForceGraph(props) {
         });
         resizeObserver.observe(container);
 
-        return (() => {
+        return () => {
             resizeObserver.disconnect();
             simulation.stop();
             svg.remove();
-        });
+        };
     }, []);
 
+    // ── Nodes ─────────────────────────────────────────────────────────────
     React.useEffect(() => {
-        const g = d3
-            .select(containerRef.current)
-            .select("svg")
-            .select("g");
-
+        const g = d3.select(containerRef.current).select("svg").select("g");
         const node = g.select("#nodes");
-
         const label = g.select("#labels");
 
-        function clickNode(id) {
-            setSelected(id);
-            clickProp(id);
-        }
-
-        nodeRef.current = new Map(node.selectAll("circle").data().map(d => [d.id, d]));
-        let nodes = nodeProp.map(d => Object.assign(d, nodeRef.current?.get(d.id)));
+        nodeRef.current = new Map(
+            node.selectAll("circle").data().map(d => [d.id, d])
+        );
+        const nodes = nodeProp.map(d => Object.assign(d, nodeRef.current?.get(d.id)));
 
         simulation.nodes(nodes);
         simulation.alphaTarget(0.1).restart();
@@ -121,7 +114,10 @@ export function ForceGraph(props) {
                 .attr("class", "node inactive"));
 
         node.selectAll("circle")
-            .on("click", (_, d) => clickNode(d.id));
+            .on("click", (_, d) => {
+                setSelected(d.id);
+                clickProp(d.id);
+            });
 
         label.selectAll("text")
             .data(nodes, d => d.id)
@@ -129,19 +125,14 @@ export function ForceGraph(props) {
                 .attr("class", "label")
                 .attr("dominant-baseline", "central")
                 .text(d => d.name));
-
-
     }, [nodeProp, clickProp]);
 
+    // ── Links ─────────────────────────────────────────────────────────────
     React.useEffect(() => {
-        const g = d3
-            .select(containerRef.current)
-            .select("svg")
-            .select("g");
+        const link = d3.select(containerRef.current)
+            .select("svg").select("g").select("#links");
 
-        const link = g.select("#links");
-
-        let links = linkProp.map(d => Object.assign({}, d));
+        const links = linkProp.map(d => Object.assign({}, d));
 
         link.selectAll("line")
             .data(links, d => [d.source, d.target])
@@ -152,33 +143,28 @@ export function ForceGraph(props) {
         simulation.alphaTarget(0.1).restart();
     }, [linkProp]);
 
+    // ── Highlight ─────────────────────────────────────────────────────────
     React.useEffect(() => {
-        const g = d3
-            .select(containerRef.current)
-            .select("svg")
-            .select("g");
-
+        const g = d3.select(containerRef.current).select("svg").select("g");
         const node = g.select("#nodes");
         const link = g.select("#links");
 
-        node.selectAll("circle")
-            .attr("class", "node inactive");
-        link.selectAll("line")
-            .attr("class", "link inactive");
+        node.selectAll("circle").attr("class", "node inactive");
+        link.selectAll("line").attr("class", "link inactive");
 
         node.selectAll("circle")
-            .filter((d, _) => highlightProp.includes(d.id))
+            .filter(d => highlightProp.includes(d.id))
             .attr("class", "node nearby");
 
         node.selectAll("circle")
-            .filter((d, _) => d.id === selected)
+            .filter(d => d.id === selected)
             .attr("class", "node active");
 
         link.selectAll("line")
-            .filter((d, _) => d.source.id === selected || d.target.id === selected)
+            .filter(d => d.source.id === selected || d.target.id === selected)
             .attr("class", "link active");
-
     }, [nodeProp, linkProp, highlightProp, selected]);
 
-    return <div ref={containerRef} className="container" />;
+    // Rename from generic Bootstrap "container" to avoid class collision
+    return <div ref={containerRef} className="pn-graph-canvas" />;
 }
